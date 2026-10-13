@@ -26,33 +26,39 @@ This is a teaching prototype. It moves no real money and must not be exposed on 
 
 ## How the parts connect
 
-```
-   client (demo.py, notebook, curl, browser)
-        |  HTTP (HyperText Transfer Protocol) requests and JSON (JavaScript Object Notation) replies
-        v
-   payment_api.py        one endpoint per action
-        |
-        v
-   remittance.py         custody (key store), on-ramp, off-ramp, receipts
-        |                         |
-        v                         v
-   stablecoin.py          ReserveBook (off chain)
-   Ledger: rules,         rand in, loti out,
-   pending pool, state    running balance
-        |
-        v
-   simple_blockchain.py   Block, Transaction, Wallet, Blockchain, mining, fork choice
+![Architecture: clients and outside parties call the API, which calls the payment platform, the stablecoin ledger and the chain core](architecture.png)
 
-   verify.py and explorer.py read GET /chain and recompute everything on their own side.
-```
+Each module calls only the layer below it. `verify.py` and `explorer.py` take only the blocks from the node (`GET /chain`) and recompute every hash, signature and balance on their own side.
 
 ## Running it
 
-Python 3.10 or later.
+Python 3.10 or later. The steps below create a clean virtual environment inside the repository folder, install the three dependencies into it, and run the work.
+
+**Windows (PowerShell)**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python tests.py
+python demo.py --hold
+```
+
+If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope Process Bypass` in the same window and try again.
+
+**macOS or Linux**
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python tests.py
+python demo.py --hold
 ```
+
+`python tests.py` ends with `26 passed, 0 failed`. `python demo.py --hold` runs the standard remittance path, ends with `44 passed, 0 failed`, and keeps the node running so the explorer can be opened at the address it prints (normally http://127.0.0.1:5000/explorer). Press Enter to stop it. To use the notebook in the same environment, run `python -m pip install notebook`, then `jupyter notebook Blockchain_Group_Assignment_9.ipynb`.
+
+The four ways to run the work are below.
 
 **1. The scripted demonstration.** Starts one node, runs the demonstration script from the brief, and ends with `44 passed, 0 failed`. It takes a few seconds.
 
@@ -85,17 +91,17 @@ If port 5000 is taken, `demo.py` and the notebook move to the next free port by 
 
 If a command reports that Flask, requests or ecdsa is missing although the notebook runs, the terminal is using a different Python installation from the notebook. Running `python -m pip install -r requirements.txt` in that same terminal installs the libraries for it.
 
-## The demonstration script
+## The standard remittance path
 
-| Brief step | What `demo.py` does | Evidence printed |
-|---|---|---|
-| i. Create wallets | The Sender creates a key pair locally and registers only its address. The Recipient asks the platform to create and hold a wallet. The reserve agent and validator wallets belong to the operator | Section 1 |
-| ii. On-ramp | The Sender deposits 1 000 rand. The reserve records it, the reserve agent signs a mint of 1 000 mZAR, and block 1 is mined | Section 2 |
-| iii. Transfer | The Sender signs a transfer of 750 mZAR locally and submits it. Block 2 is mined | Section 3 |
-| iv. Off-ramp | The Recipient redeems 750 mZAR. The burn is mined in block 3, 750 loti is paid out and a signed receipt is issued | Section 4 |
-| v. Verification and explorer | The node audits its chain. An outside party then recomputes everything from the downloaded blocks, proves the transfer is in block 2, checks the receipt, and shows that an edited copy of the chain is rejected. The explorer prints the overview and the payment record | Section 5 |
-| vi. Invalid attempts | Six requests are refused: an altered transaction (401), a wrong key (401), insufficient balance (422), a replay (409), a forged mint (403) and an unregistered customer (403) | Section 6 |
-| Payment API | A second customer sends 400 through `POST /payments`, which runs the whole flow in one call | Section 7 |
+| Step | What happens | Endpoint | Notebook section | `demo.py` section |
+|---|---|---|---|---|
+| i. Create wallets | The Sender creates a key pair locally and registers only its address (self-custody). The Recipient asks the platform to create and hold a wallet (hosted). The reserve agent and validator wallets belong to the operator | `POST /wallets` | 9 | 1 |
+| ii. On-ramp | The Sender deposits 1 000 rand. The reserve (the vault) records it first and rises to 1 000, then the reserve agent signs a mint of 1 000 mZAR, and block 1 is mined | `POST /onramp`, `POST /mine` | 10 | 2 |
+| iii. Transfer | The Sender signs a transfer of 750 mZAR locally and submits it. Block 2 is mined | `POST /transactions`, `POST /mine` | 11 | 3 |
+| iv. Off-ramp | The Recipient redeems 750 mZAR. The burn is mined in block 3, the reserve falls to 250, 750 loti is paid out and receipt RCPT-0001 is issued | `POST /offramp`, `POST /mine` | 12 | 4 |
+| v. Verification and explorer | The node audits its chain (`GET /chain/verify`). An outside party recomputes everything from the downloaded blocks, proves the 750 transfer is in block 2, checks the receipt, and shows that an edited copy of the chain is rejected. The explorer shows the payment record for the 750 transfer | `GET /chain/verify`, `GET /explorer/tx/<txid>` | 13 and 14 | 5 |
+| vi. Invalid attempts | Six requests are refused: an altered transaction (401), a wrong key (401), insufficient balance (422), a replay (409), a forged mint (403) and an unregistered customer (403) | `POST /transactions`, `POST /onramp` | 15 | 6 |
+| Payment API | A second customer sends 400 through one call, which runs on-ramp, transfer and off-ramp | `POST /payments` | 16 | 7 |
 
 ## Design in brief
 
