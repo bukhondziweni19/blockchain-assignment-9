@@ -1,0 +1,871 @@
+BLCH9X2 Assignment 9: Financial Blockchain Capstone, African Remittances Payment Prototype
+One node started at http://127.0.0.1:5000, mining at difficulty 4
+
+==============================================================================================================
+SECTION 1  CREATE THE WALLETS (brief item a, demonstration step i)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 1  The node at the start: one genesis block, whose charter names the reserve agent
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/
+HTTP 200
+{
+  "service": "mZAR remittance prototype",
+  "node": "http://127.0.0.1:5000",
+  "reserve_rule": "1 mZAR = 1 ZAR held in reserve",
+  "reserve_agent": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+  "genesis_hash": "85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c",
+  "difficulty": 4,
+  "chain_length": 1,
+  "pending_count": 0,
+  "endpoints": [
+    "POST /wallets                register a customer wallet",
+    "GET  /wallets                every known wallet",
+    "GET  /accounts/<address>     balance and next sequence number of an address",
+    "POST /onramp                 deposit rand, mint the same number of mZAR",
+    "POST /transfer               send mZAR from a hosted wallet",
+    "POST /transactions           submit a transaction signed outside the platform",
+    "POST /offramp                burn mZAR from a hosted wallet, to be paid out",
+    "POST /mine                   mine the pending transactions into a block",
+    "POST /payments               the whole flow in one call",
+    "GET  /payments/<id>          the record of one such payment",
+    "GET  /reserve                the reserve against the mZAR in circulation",
+    "GET  /receipts               every conversion record and receipt",
+    "GET  /receipts/<id>          one conversion record or receipt",
+    "GET  /chain                  the full chain",
+    "GET  /chain/verify           the node's own audit of its chain",
+    "GET  /transactions/pending   transactions waiting to be mined",
+    "GET  /transactions/<txid>    one transaction, its block and its confirmations",
+    "GET  /explorer               web page summarising the node",
+    "GET  /explorer/tx/<txid>     web page for one transaction and its block"
+  ]
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 2  The Sender creates a key pair on the Sender's own device and registers only its address (self-custody)
+--------------------------------------------------------------------------------------------------------------
+Created locally: Wallet(name='Sender', address=1f20731db9e34b92d4609b65ca7a029a7ebdde3f)  (the private key never leaves this program)
+
+POST http://127.0.0.1:5000/wallets
+body: {"name": "Sender", "address": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f"}
+HTTP 201
+{
+  "message": "wallet registered: the customer holds the key",
+  "wallet": {
+    "name": "Sender",
+    "address": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+    "custody": "self",
+    "public_key": null
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 3  The Recipient asks the platform to create and hold a wallet (hosted custody)
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/wallets
+body: {"name": "Recipient"}
+HTTP 201
+{
+  "message": "wallet registered: the platform holds the key",
+  "wallet": {
+    "name": "Recipient",
+    "address": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+    "custody": "hosted",
+    "public_key": "8d0a38c623f98d7413f42ae35272199c547ba537d4cb6774d0520a530f2744746781ec8482eff7097ce85a6c474bb851a3a2258f06a197b73d9fd0e458896bba"
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 4  Every wallet the platform knows: two operator wallets and two customers
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/wallets
+HTTP 200
+{
+  "count": 4,
+  "wallets": [
+    {
+      "name": "Reserve agent",
+      "address": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+      "custody": "operator",
+      "public_key": "297e4fa470f5fad9c28052b6ff133611f44ba259dac46484bfeb5ec4456a8cc7a595374514ff333531551d44c3543582dadfd9b27f374efb05cde26ca07d5b5c"
+    },
+    {
+      "name": "Validator",
+      "address": "642908387887e8e30930847b7afc2b0d8e660304",
+      "custody": "operator",
+      "public_key": "32af9141d06179a324c6816aded03700d7dd5ac50b2e9f5cc618fe01d2688a848ef61d4a01cd78e92fd8ce5185a399360cbc1b89280e80f97b5e45a05ea4307f"
+    },
+    {
+      "name": "Sender",
+      "address": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+      "custody": "self",
+      "public_key": null
+    },
+    {
+      "name": "Recipient",
+      "address": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+      "custody": "hosted",
+      "public_key": "8d0a38c623f98d7413f42ae35272199c547ba537d4cb6774d0520a530f2744746781ec8482eff7097ce85a6c474bb851a3a2258f06a197b73d9fd0e458896bba"
+    }
+  ]
+}
+
+
+==============================================================================================================
+SECTION 2  ON-RAMP: 1,000 RAND IN, 1,000 mZAR OUT (brief item b, demonstration step ii)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 5  The Sender deposits 1,000 rand. The reserve records it, then the reserve agent signs a mint
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/onramp
+body: {"address": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "amount": 1000, "bank_reference": "EFT-20261013-001"}
+HTTP 201
+{
+  "message": "deposit recorded in the reserve; a mint of 1,000 mZAR is waiting to be mined",
+  "conversion": {
+    "id": "DEP-0001",
+    "type": "on-ramp",
+    "customer": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+    "customer_name": "Sender",
+    "deposited": 1000,
+    "deposit_currency": "ZAR",
+    "minted": 1000,
+    "asset": "mZAR",
+    "rate": "1 ZAR = 1 mZAR",
+    "bank_reference": "EFT-20261013-001",
+    "txid": "6251b477c8ad865ca220e4e727e99663647290bf8a04f3ca4e9817ea0ddd9c72",
+    "status": "pending",
+    "block_index": null,
+    "block_hash": null
+  },
+  "reserve_balance": 1000
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 6  Block 1 is mined and carries the mint
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/mine
+HTTP 201
+{
+  "message": "block 1 mined",
+  "block": {
+    "index": 1,
+    "timestamp": 1790000120,
+    "transactions": [
+      {
+        "sender": "NETWORK",
+        "recipient": "642908387887e8e30930847b7afc2b0d8e660304",
+        "amount": 50,
+        "timestamp": 1790000120,
+        "signature": null,
+        "reference": "reward for block 1"
+      },
+      {
+        "sender": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+        "recipient": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+        "amount": 1000,
+        "timestamp": 1790000060,
+        "signature": "304402206e07a3c343c15a49224c8473bcbe14aaabba5b9b9d68087c4f750a43a6add1ac022050cbf40978f3a6ca3513ec472631c7d91c6396e201e416be778ecc03eb862910",
+        "kind": "mint",
+        "asset": "mZAR",
+        "sequence": 0,
+        "public_key": "297e4fa470f5fad9c28052b6ff133611f44ba259dac46484bfeb5ec4456a8cc7a595374514ff333531551d44c3543582dadfd9b27f374efb05cde26ca07d5b5c",
+        "reference": "DEP-0001"
+      }
+    ],
+    "previous_hash": "85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c",
+    "nonce": 63361,
+    "difficulty": 4,
+    "hash": "0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c"
+  },
+  "attempts": 63362,
+  "seconds": 0.59,
+  "receipts_issued": []
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 7  The conversion record is now confirmed, and the Sender holds 1,000 mZAR
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/receipts/DEP-0001
+HTTP 200
+{
+  "id": "DEP-0001",
+  "type": "on-ramp",
+  "customer": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+  "customer_name": "Sender",
+  "deposited": 1000,
+  "deposit_currency": "ZAR",
+  "minted": 1000,
+  "asset": "mZAR",
+  "rate": "1 ZAR = 1 mZAR",
+  "bank_reference": "EFT-20261013-001",
+  "txid": "6251b477c8ad865ca220e4e727e99663647290bf8a04f3ca4e9817ea0ddd9c72",
+  "status": "confirmed",
+  "block_index": 1,
+  "block_hash": "0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c"
+}
+
+  wallet            confirmed mZAR   address
+  Sender                     1,000   1f20731db9e34b92d4609b65ca7a029a7ebdde3f
+  Recipient                      0   e2637520d3ed6a039b23ff672bfbefaabcb72174
+  Reserve agent                  0   0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+
+
+==============================================================================================================
+SECTION 3  TRANSFER: THE SENDER SIGNS 750 mZAR TO THE RECIPIENT (brief item c, demonstration step iii)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 8  The Sender builds and signs the transfer locally, then submits the signed transaction
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174", "amount": 750, "timestamp": 1790000150, "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52", "kind": "transfer", "asset": "mZAR", "sequence": 0, "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"}
+HTTP 201
+{
+  "message": "signed transaction accepted into the pending pool",
+  "txid": "3c61f3cd84569501ace3677890e846d41cbcf6cab0ea47b1f9537cfbf06d590f",
+  "transaction": {
+    "sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+    "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+    "amount": 750,
+    "timestamp": 1790000150,
+    "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52",
+    "kind": "transfer",
+    "asset": "mZAR",
+    "sequence": 0,
+    "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 9  Before mining, the transfer is pending and has no confirmations
+--------------------------------------------------------------------------------------------------------------
+status: pending, confirmations: 0
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 10  Block 2 is mined and carries the signed transfer
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/mine
+HTTP 201
+{
+  "message": "block 2 mined",
+  "block": {
+    "index": 2,
+    "timestamp": 1790000180,
+    "transactions": [
+      {
+        "sender": "NETWORK",
+        "recipient": "642908387887e8e30930847b7afc2b0d8e660304",
+        "amount": 50,
+        "timestamp": 1790000180,
+        "signature": null,
+        "reference": "reward for block 2"
+      },
+      {
+        "sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+        "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+        "amount": 750,
+        "timestamp": 1790000150,
+        "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52",
+        "kind": "transfer",
+        "asset": "mZAR",
+        "sequence": 0,
+        "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"
+      }
+    ],
+    "previous_hash": "0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c",
+    "nonce": 14622,
+    "difficulty": 4,
+    "hash": "00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c"
+  },
+  "attempts": 14623,
+  "seconds": 0.134,
+  "receipts_issued": []
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 11  The transfer is confirmed: 250 mZAR stays with the Sender, 750 mZAR is with the Recipient
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/transactions/3c61f3cd84569501ace3677890e846d41cbcf6cab0ea47b1f9537cfbf06d590f
+HTTP 200
+{
+  "txid": "3c61f3cd84569501ace3677890e846d41cbcf6cab0ea47b1f9537cfbf06d590f",
+  "status": "confirmed",
+  "block_index": 2,
+  "block_hash": "00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c",
+  "position_in_block": 1,
+  "confirmations": 1,
+  "transaction": {
+    "sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+    "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+    "amount": 750,
+    "timestamp": 1790000150,
+    "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52",
+    "kind": "transfer",
+    "asset": "mZAR",
+    "sequence": 0,
+    "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"
+  }
+}
+
+  wallet            confirmed mZAR   address
+  Sender                       250   1f20731db9e34b92d4609b65ca7a029a7ebdde3f
+  Recipient                    750   e2637520d3ed6a039b23ff672bfbefaabcb72174
+  Reserve agent                  0   0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+
+
+==============================================================================================================
+SECTION 4  OFF-RAMP: 750 mZAR IN, 750 LOTI OUT (brief item d, demonstration step iv)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 12  The Recipient redeems 750 mZAR. The platform signs a burn with the Recipient's hosted key
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/offramp
+body: {"address": "e2637520d3ed6a039b23ff672bfbefaabcb72174", "amount": 750}
+HTTP 202
+{
+  "message": "burn accepted into the pending pool",
+  "txid": "ecad44c787736a5f91563538b53331b1b900fa76805a7361eee5f58d8ae517ad",
+  "transaction": {
+    "sender": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+    "recipient": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+    "amount": 750,
+    "timestamp": 1790000240,
+    "signature": "3045022100fc695b1bc3eb791cdbf580da6c5d82a3788e63d0750f00bf5856c7893db1e83a022066e0346199b6b5d01de7b8f8aa20cbf7ebbfed67ff6d95aedb4dfd26138a05d8",
+    "kind": "burn",
+    "asset": "mZAR",
+    "sequence": 0,
+    "public_key": "8d0a38c623f98d7413f42ae35272199c547ba537d4cb6774d0520a530f2744746781ec8482eff7097ce85a6c474bb851a3a2258f06a197b73d9fd0e458896bba",
+    "reference": "redemption"
+  },
+  "status": "awaiting confirmation",
+  "note": "a receipt is issued and LSL paid out once the burn has 1 confirmation(s)"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 13  Block 3 is mined. The burn is now confirmed, so the payout is made and a receipt is issued
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/mine
+HTTP 201
+{
+  "message": "block 3 mined",
+  "block": {
+    "index": 3,
+    "timestamp": 1790000300,
+    "transactions": [
+      {
+        "sender": "NETWORK",
+        "recipient": "642908387887e8e30930847b7afc2b0d8e660304",
+        "amount": 50,
+        "timestamp": 1790000300,
+        "signature": null,
+        "reference": "reward for block 3"
+      },
+      {
+        "sender": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+        "recipient": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+        "amount": 750,
+        "timestamp": 1790000240,
+        "signature": "3045022100fc695b1bc3eb791cdbf580da6c5d82a3788e63d0750f00bf5856c7893db1e83a022066e0346199b6b5d01de7b8f8aa20cbf7ebbfed67ff6d95aedb4dfd26138a05d8",
+        "kind": "burn",
+        "asset": "mZAR",
+        "sequence": 0,
+        "public_key": "8d0a38c623f98d7413f42ae35272199c547ba537d4cb6774d0520a530f2744746781ec8482eff7097ce85a6c474bb851a3a2258f06a197b73d9fd0e458896bba",
+        "reference": "redemption"
+      }
+    ],
+    "previous_hash": "00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c",
+    "nonce": 55685,
+    "difficulty": 4,
+    "hash": "0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d"
+  },
+  "attempts": 55686,
+  "seconds": 0.529,
+  "receipts_issued": [
+    {
+      "id": "RCPT-0001",
+      "type": "off-ramp",
+      "customer": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+      "customer_name": "Recipient",
+      "burned": 750,
+      "asset": "mZAR",
+      "paid_out": 750,
+      "payout_currency": "LSL",
+      "rate": "1 mZAR = 1 ZAR = 1 LSL",
+      "status": "paid",
+      "txid": "ecad44c787736a5f91563538b53331b1b900fa76805a7361eee5f58d8ae517ad",
+      "block_index": 3,
+      "block_hash": "0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d",
+      "issued_at": 1790000360,
+      "issuer": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+      "issuer_public_key": "297e4fa470f5fad9c28052b6ff133611f44ba259dac46484bfeb5ec4456a8cc7a595374514ff333531551d44c3543582dadfd9b27f374efb05cde26ca07d5b5c",
+      "signature": "304402202da0eb4e2950caebcf9f98ec210684d40fb95645ff0c392fd36f6ad8c780e557022006a7f6aec4674d056b5804d6bee7548656b7881e2bbf2cbac17c198b5622cefc"
+    }
+  ]
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 14  The recorded receipt, signed by the reserve agent
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/receipts/RCPT-0001
+HTTP 200
+{
+  "id": "RCPT-0001",
+  "type": "off-ramp",
+  "customer": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+  "customer_name": "Recipient",
+  "burned": 750,
+  "asset": "mZAR",
+  "paid_out": 750,
+  "payout_currency": "LSL",
+  "rate": "1 mZAR = 1 ZAR = 1 LSL",
+  "status": "paid",
+  "txid": "ecad44c787736a5f91563538b53331b1b900fa76805a7361eee5f58d8ae517ad",
+  "block_index": 3,
+  "block_hash": "0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d",
+  "issued_at": 1790000360,
+  "issuer": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+  "issuer_public_key": "297e4fa470f5fad9c28052b6ff133611f44ba259dac46484bfeb5ec4456a8cc7a595374514ff333531551d44c3543582dadfd9b27f374efb05cde26ca07d5b5c",
+  "signature": "304402202da0eb4e2950caebcf9f98ec210684d40fb95645ff0c392fd36f6ad8c780e557022006a7f6aec4674d056b5804d6bee7548656b7881e2bbf2cbac17c198b5622cefc"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 15  The reserve after the payout, set against the mZAR in circulation
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/reserve
+HTTP 200
+{
+  "rule": "1 mZAR = 1 ZAR held in reserve",
+  "reserve_balance": 250,
+  "reserve_currency": "ZAR",
+  "minted": 1000,
+  "burned": 750,
+  "supply": 250,
+  "asset": "mZAR",
+  "fully_backed": true,
+  "surplus": 0,
+  "entries": [
+    {
+      "entry": 1,
+      "type": "deposit",
+      "amount": 1000,
+      "currency": "ZAR",
+      "customer": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f",
+      "reference": "DEP-0001",
+      "txid": "6251b477c8ad865ca220e4e727e99663647290bf8a04f3ca4e9817ea0ddd9c72",
+      "balance": 1000
+    },
+    {
+      "entry": 2,
+      "type": "payout",
+      "amount": -750,
+      "currency": "ZAR",
+      "customer": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+      "reference": "RCPT-0001",
+      "txid": "ecad44c787736a5f91563538b53331b1b900fa76805a7361eee5f58d8ae517ad",
+      "balance": 250
+    }
+  ]
+}
+
+  wallet            confirmed mZAR   address
+  Sender                       250   1f20731db9e34b92d4609b65ca7a029a7ebdde3f
+  Recipient                      0   e2637520d3ed6a039b23ff672bfbefaabcb72174
+  Reserve agent                  0   0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+
+Where the Sender's 1,000 rand is now: 750 was paid to the Recipient in loti, and 250 remains in
+reserve behind the 250 mZAR the Sender still holds.
+
+==============================================================================================================
+SECTION 5  VERIFICATION AND EXPLORER (brief items e and g, demonstration step v)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 16  The node audits its own chain
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/chain/verify
+HTTP 200
+{
+  "valid": true,
+  "problem": null,
+  "chain_length": 4,
+  "blocks_passed": 4,
+  "signatures_checked": 3,
+  "genesis_hash": "85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c",
+  "reserve_agent": "0d8cb096595dcf1ed5b2ad861890b98f3cd96176",
+  "minted": 1000,
+  "burned": 750,
+  "supply": 250,
+  "checks": [
+    {
+      "block": 0,
+      "hash": "85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c",
+      "transactions": 1,
+      "signatures": 0,
+      "result": "charter names reserve agent 0d8cb096595dcf1ed5b2ad861890b98f3cd96176"
+    },
+    {
+      "block": 1,
+      "hash": "0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c",
+      "transactions": 2,
+      "signatures": 1,
+      "result": "hash, link, proof of work, reward, signatures, sequences and balances all hold"
+    },
+    {
+      "block": 2,
+      "hash": "00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c",
+      "transactions": 2,
+      "signatures": 1,
+      "result": "hash, link, proof of work, reward, signatures, sequences and balances all hold"
+    },
+    {
+      "block": 3,
+      "hash": "0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d",
+      "transactions": 2,
+      "signatures": 1,
+      "result": "hash, link, proof of work, reward, signatures, sequences and balances all hold"
+    }
+  ]
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 17  An outside party downloads the blocks and recomputes everything without trusting the node
+--------------------------------------------------------------------------------------------------------------
+CHAIN AUDIT (every check recomputed locally from the blocks the node supplied)
+  block 0  85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c
+           1 record(s), 0 signature(s) checked: charter names reserve agent 0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+  block 1  0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c
+           2 record(s), 1 signature(s) checked: hash, link, proof of work, reward, signatures, sequences and balances all hold
+  block 2  00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c
+           2 record(s), 1 signature(s) checked: hash, link, proof of work, reward, signatures, sequences and balances all hold
+  block 3  0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d
+           2 record(s), 1 signature(s) checked: hash, link, proof of work, reward, signatures, sequences and balances all hold
+  RESULT: VALID. 4 blocks, 3 signatures, 1,000 mZAR minted, 750 burned, 250 in circulation.
+  Genesis hash : 85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c
+  Reserve agent: 0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+
+--------------------------------------------------------------------------------------------------------------
+Step 18  Transaction lookup: the transfer is proved to be inside block 2
+--------------------------------------------------------------------------------------------------------------
+TRANSACTION 3c61f3cd84569501ace3677890e846d41cbcf6cab0ea47b1f9537cfbf06d590f
+  Contents      : transfer of 750 from 1f20731db9e34b92d4609b65ca7a029a7ebdde3f to e2637520d3ed6a039b23ff672bfbefaabcb72174
+  Signature     : valid
+  Included in   : block 2, position 1
+  Block hash    : 00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c
+  Recomputed    : 00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c (matches)
+  Confirmations : 2
+
+--------------------------------------------------------------------------------------------------------------
+Step 19  The receipt is checked against the chain and the reserve agent's signature
+--------------------------------------------------------------------------------------------------------------
+  signed_by_reserve_agent : yes
+  burn_is_on_chain        : yes
+  block_matches           : yes
+  customer_matches        : yes
+  amount_matches          : yes
+
+--------------------------------------------------------------------------------------------------------------
+Step 20  Tamper evidence: a copy of the chain is edited and audited again
+--------------------------------------------------------------------------------------------------------------
+In a copy of the chain, the transfer in block 2 is changed from 750 to 7,500 mZAR.
+
+CHAIN AUDIT (every check recomputed locally from the blocks the node supplied)
+  RESULT: INVALID. Block 2: self-hash pillar failed (stored=00000bf91e0e..., recomputed=a7e62ab959e7...).
+
+--------------------------------------------------------------------------------------------------------------
+Step 21  The explorer: a human-readable overview of the node
+--------------------------------------------------------------------------------------------------------------
+==============================================================================================================
+EXPLORER  node http://127.0.0.1:5000
+==============================================================================================================
+Node          : http://127.0.0.1:5000
+Asset         : mZAR. 1 mZAR = 1 ZAR held in reserve
+Reserve agent : 0d8cb096595dcf1ed5b2ad861890b98f3cd96176
+Genesis hash  : 85c4405998fb7eab0f33418a16412e86cec9d2201ca637ac0eb215546a9aa60c
+Chain height  : 3 (4 blocks including genesis)
+Difficulty    : 4 leading zeros
+Chain check   : valid: every hash, link, proof of work, signature and balance was recomputed by this explorer
+Supply        : 250 mZAR in circulation (1,000 minted, 750 burned)
+Reserve       : 250 ZAR held. Fully backed: yes
+Pending       : 0 transaction(s) waiting to be mined
+
+BLOCKS (newest first, 4 of 4)
+  Index  Time (UTC)        Records  Nonce   Hash                 Previous hash
+  3      2026-09-21 14:18  2        55,685  0000ff511afc83ce...  00000bf91e0edf80...
+  2      2026-09-21 14:16  2        14,622  00000bf91e0edf80...  0000d7e464bf3761...
+  1      2026-09-21 14:15  2        63,361  0000d7e464bf3761...  85c4405998fb7eab...
+  0      2026-09-21 14:13  1        0       85c4405998fb7eab...  0000000000000000...
+
+TRANSACTIONS (newest first, 7 of 7)
+  Block  Kind      From           To             Amount      Seq  Reference                       Txid
+  3      burn      Recipient      Reserve agent  750 mZAR    0    redemption                      ecad44c787736a5f...
+  3      reward    (new coins)    Validator      50 SBC      -    reward for block 3              3805316ac6d42864...
+  2      transfer  Sender         Recipient      750 mZAR    0    -                               3c61f3cd84569501...
+  2      reward    (new coins)    Validator      50 SBC      -    reward for block 2              b388f32775bc9c02...
+  1      mint      Reserve agent  Sender         1,000 mZAR  0    DEP-0001                        6251b477c8ad865c...
+  1      reward    (new coins)    Validator      50 SBC      -    reward for block 1              701ecb801c29bb88...
+  0      charter   (genesis)      Reserve agent  -           -    1 mZAR = 1 ZAR held in reserve  13e2021f6e7b64ab...
+
+PENDING (0)
+  (none)
+
+WALLET BALANCES (confirmed, replayed from the chain)
+  Name           Address                                   Custody   mZAR  SBC
+  Reserve agent  0d8cb096595dcf1ed5b2ad861890b98f3cd96176  operator  0     0
+  Validator      642908387887e8e30930847b7afc2b0d8e660304  operator  0     150
+  Sender         1f20731db9e34b92d4609b65ca7a029a7ebdde3f  self      250   0
+  Recipient      e2637520d3ed6a039b23ff672bfbefaabcb72174  hosted    0     0
+
+CONVERSIONS AND RECEIPTS
+  Id         Type      Customer   In         Out         Status     Block  Txid
+  DEP-0001   on-ramp   Sender     1,000 ZAR  1,000 mZAR  confirmed  1      6251b477c8ad865c...
+  RCPT-0001  off-ramp  Recipient  750 mZAR   750 LSL     paid       3      ecad44c787736a5f...
+
+RESERVE CASH BOOK (ZAR)
+  Entry  Type     Amount  Customer   Reference  Balance
+  1      deposit  +1,000  Sender     DEP-0001   1,000
+  2      payout   -750    Recipient  RCPT-0001  250
+
+--------------------------------------------------------------------------------------------------------------
+Step 22  The explorer: the payment record for the transfer, with its block and transaction identifiers
+--------------------------------------------------------------------------------------------------------------
+PAYMENT RECORD
+  Transaction ID      : 3c61f3cd84569501ace3677890e846d41cbcf6cab0ea47b1f9537cfbf06d590f
+  Kind                : transfer
+  Amount              : 750 mZAR
+  From                : Sender  1f20731db9e34b92d4609b65ca7a029a7ebdde3f
+  To                  : Recipient  e2637520d3ed6a039b23ff672bfbefaabcb72174
+  Sequence            : 0
+  Reference           : -
+  Created (UTC)       : 2026-09-21 14:15
+  Signature           : valid (checked against the public key carried in the transaction)
+  Status              : confirmed, 2 confirmation(s)
+  Block               : 2 (position 1 of 2 records; position 0 is the miner's reward)
+  Block hash          : 00000bf91e0edf80f73a2869df04bb388eec46c6046958cea036dc0491c4cf9c
+  Block hash check    : recomputed from the block's contents: matches
+  Previous block hash : 0000d7e464bf3761ee07a0750b742dda484148277bb7c65f582782c2a4cff40c
+  Block nonce         : 14,622
+  Block difficulty    : 4 leading zeros
+  Block time (UTC)    : 2026-09-21 14:16
+
+==============================================================================================================
+SECTION 6  INVALID REQUESTS ARE REFUSED (demonstration step vi)
+==============================================================================================================
+The attacker's wallet: Wallet(name='Mallory', address=bf49dde82a3dc1dce632d54cccb8863fd9d82a11)
+
+--------------------------------------------------------------------------------------------------------------
+Step 23 (a)  Bad signature: the Sender's transfer is copied from the chain and redirected to the attacker
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "recipient": "bf49dde82a3dc1dce632d54cccb8863fd9d82a11", "amount": 750, "timestamp": 1790000150, "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52", "kind": "transfer", "asset": "mZAR", "sequence": 0, "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"}
+HTTP 401
+{
+  "error": "the signature does not match the transaction's contents"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 24 (b)  Wrong key: the attacker signs a transfer out of the Sender's account with her own key
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "recipient": "bf49dde82a3dc1dce632d54cccb8863fd9d82a11", "amount": 250, "timestamp": 1790000330, "signature": "3046022100f94328ef5f22b7ff3fcb3a73ca4761af084e52f7a28ef8a979c13178ec233c66022100e317120600ac839f210a624dec02e23d622c8002395a90b95ab7de77cd5028a4", "kind": "transfer", "asset": "mZAR", "sequence": 1, "public_key": "ce28c5c8a0d9d5750243b80a98ac9751a099e7f2b78ae7fea74174670845f28e0bb87d0ae811a176dc7ef66f259c645406f0245c0e237ede67d96ee084be46fb"}
+HTTP 401
+{
+  "error": "the public key does not belong to the sender's address"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 25 (c)  Insufficient balance: the Sender holds 250 mZAR and validly signs a transfer of 500
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174", "amount": 500, "timestamp": 1790000330, "signature": "3046022100ce7ffcec4d468e5df9d50ee85d932f84b7261d627a548501fd14383391d81036022100cf6a423f70bc7ee15efc9b1525bf5354dec40b47b923a44d76a327501e095808", "kind": "transfer", "asset": "mZAR", "sequence": 1, "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"}
+HTTP 422
+{
+  "error": "the sender holds 250 mZAR but the transaction needs 500"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 26 (d)  Replay: the Sender's confirmed transfer is submitted a second time, unchanged
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "1f20731db9e34b92d4609b65ca7a029a7ebdde3f", "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174", "amount": 750, "timestamp": 1790000150, "signature": "30450220767059fd5bfd6f6d3753bf2d7b4a32098d86200f29170a64e0cdd58f5bbef7d2022100afb273b5c2e2d091db83e621511706c716c2edb747b48abb1a5c0a05cadace52", "kind": "transfer", "asset": "mZAR", "sequence": 0, "public_key": "016b3da12aca62fe6f421048212bc4697c6a2096c89d752813891c4166beede4bcbef27855f53d6c8a6e77b12d6eb9ca01a3d1f5ee7ba0cfb9f9e7fdfeaff87f"}
+HTTP 409
+{
+  "error": "this transaction is already on the ledger"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 27 (e)  Forged mint: the attacker signs a mint of 1,000,000 mZAR to herself
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/transactions
+body: {"sender": "bf49dde82a3dc1dce632d54cccb8863fd9d82a11", "recipient": "bf49dde82a3dc1dce632d54cccb8863fd9d82a11", "amount": 1000000, "timestamp": 1790000330, "signature": "3046022100c4612b294b324465ec3de658b7a60d1e27b71f2b83a9cb9c58ffe20338c6b290022100ed44b3e4dca89e297f96e3c5f66f98ad35d901981fb72c16e7cc39986ddb60c4", "kind": "mint", "asset": "mZAR", "sequence": 0, "public_key": "ce28c5c8a0d9d5750243b80a98ac9751a099e7f2b78ae7fea74174670845f28e0bb87d0ae811a176dc7ef66f259c645406f0245c0e237ede67d96ee084be46fb"}
+HTTP 403
+{
+  "error": "only the reserve agent named in the genesis block may mint"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 28 (f)  Unregistered customer: the attacker asks the on-ramp to mint to an unregistered address
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/onramp
+body: {"address": "bf49dde82a3dc1dce632d54cccb8863fd9d82a11", "amount": 1000}
+HTTP 403
+{
+  "error": "that address is not a registered customer; register the wallet first"
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 29  Nothing changed: the pool is empty, the chain is the same length and the reserve still matches
+--------------------------------------------------------------------------------------------------------------
+GET http://127.0.0.1:5000/transactions/pending
+HTTP 200
+{
+  "count": 0,
+  "transactions": []
+}
+
+chain length 4, newest hash 0000ff511afc83cea88fe4df8755e5c9aa1f48ac0f519d90d2f858a6f2c11d7d
+reserve 250 ZAR, supply 250 mZAR
+
+
+==============================================================================================================
+SECTION 7  THE PAYMENT API: THE WHOLE FLOW IN ONE CALL (brief item f)
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+Step 30  A second customer registers a hosted wallet
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/wallets
+body: {"name": "Second sender"}
+HTTP 201
+{
+  "message": "wallet registered: the platform holds the key",
+  "wallet": {
+    "name": "Second sender",
+    "address": "0fdd82b71404ee2ac37f1d0b8961bd3460ddc407",
+    "custody": "hosted",
+    "public_key": "135465ee45293a993d3d808f91cdea512e850070b9f2bbab07f1d7c2379b66f558f83a98da2a9d443943d0ac890281c6cc7d541b4f7a45c5e05c1435a94f8d1c"
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 31  POST /payments runs on-ramp, transfer and off-ramp for 400, mining a block after each step
+--------------------------------------------------------------------------------------------------------------
+POST http://127.0.0.1:5000/payments
+body: {"sender": "0fdd82b71404ee2ac37f1d0b8961bd3460ddc407", "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174", "amount": 400, "bank_reference": "EFT-20261013-002"}
+HTTP 201
+{
+  "message": "payment PAY-0001 completed",
+  "payment": {
+    "id": "PAY-0001",
+    "sender": "0fdd82b71404ee2ac37f1d0b8961bd3460ddc407",
+    "recipient": "e2637520d3ed6a039b23ff672bfbefaabcb72174",
+    "amount": 400,
+    "status": "paid out",
+    "steps": [
+      {
+        "step": "on-ramp (mint)",
+        "txid": "4e78bd8d5088c8e64cb3afbacba31f69446b4e73907ee8cc66c2b5ae74efef0c",
+        "block_index": 4,
+        "block_hash": "0000eb41e5ca4dc9fad19673e3838d20589b9df4ad655ecbd544edb119c06c9e",
+        "confirmations": 1
+      },
+      {
+        "step": "transfer",
+        "txid": "702a364773ca01a98efdbe685110260943e3e0c493940a728cca97a2be895057",
+        "block_index": 5,
+        "block_hash": "0000c3804db023559be285b2cca3f6ac7c282e7c008c7de5d79e06eca1358f13",
+        "confirmations": 1
+      },
+      {
+        "step": "off-ramp (burn)",
+        "txid": "d5a967662009e42f27076bde8ccb76073c212f562f06950909d35cb9ffe637aa",
+        "block_index": 6,
+        "block_hash": "00005a291dfc6e66107e8bf781e9adf55931b4990dd38f980266299698ac336b",
+        "confirmations": 1
+      }
+    ],
+    "conversion_id": "DEP-0002",
+    "receipt_id": "RCPT-0002"
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------------------
+Step 32  The final state: the chain is valid and the reserve still equals the supply
+--------------------------------------------------------------------------------------------------------------
+chain valid: True, blocks: 7, signatures checked: 6
+minted 1,400, burned 1,150, in circulation 250 mZAR
+reserve 250 ZAR, fully backed: True
+
+==============================================================================================================
+SECTION 8  SELF-CHECKS
+==============================================================================================================
+
+  [PASS] GET / returns 200 and a chain holding only the genesis block
+  [PASS] the Sender is registered with custody 'self'
+  [PASS] the Recipient is registered with custody 'hosted'
+  [PASS] GET /wallets lists four wallets and reveals no private key
+  [PASS] POST /onramp returns 201 and conversion DEP-0001
+  [PASS] the reserve holds 1,000 rand before the mint is mined
+  [PASS] block 1 holds the reward and the mint
+  [PASS] block 1's hash starts with 4 zeros
+  [PASS] conversion DEP-0001 is confirmed in block 1
+  [PASS] the Sender holds 1,000 mZAR
+  [PASS] POST /transactions returns 201 and a 64 character txid
+  [PASS] the transfer is pending with 0 confirmations
+  [PASS] block 2 points at block 1
+  [PASS] the transfer is confirmed in block 2 with 1 confirmation
+  [PASS] the Sender holds 250 and the Recipient 750
+  [PASS] POST /offramp returns 202: accepted, nothing paid out yet
+  [PASS] the reserve still holds 1,000 rand while the burn is unconfirmed
+  [PASS] mining block 3 issued receipt RCPT-0001
+  [PASS] the receipt records 750 mZAR burned and 750 LSL paid
+  [PASS] the receipt names the burn and its block
+  [PASS] 250 rand in reserve backs 250 mZAR in circulation
+  [PASS] the Recipient holds 0 mZAR after redeeming
+  [PASS] GET /chain/verify reports a valid chain of 4 blocks
+  [PASS] the outside audit finds the chain valid and checks 3 signatures
+  [PASS] the outside audit finds 250 mZAR in circulation
+  [PASS] the transfer is found in block 2 with a valid signature
+  [PASS] block 2's hash matches a hash recomputed from its contents
+  [PASS] the transfer now has 2 confirmations
+  [PASS] the receipt passes all five tests
+  [PASS] the edited copy is rejected at block 2
+  [PASS] the explorer's payment record shows the full transaction identifier
+  [PASS] an altered transaction is refused with 401
+  [PASS] a transaction signed with the wrong key is refused with 401
+  [PASS] an unaffordable transfer is refused with 422
+  [PASS] a replayed transaction is refused with 409
+  [PASS] a mint by anyone but the reserve agent is refused with 403
+  [PASS] the on-ramp refuses an unregistered address with 403
+  [PASS] no refused request entered the pending pool
+  [PASS] the chain is unchanged by the refused requests
+  [PASS] the reserve is unchanged by the refused requests
+  [PASS] POST /payments returns 201 with three confirmed steps
+  [PASS] the payment produced receipt RCPT-0002
+  [PASS] the final chain of 7 blocks is valid
+  [PASS] 1,400 minted, 1,150 burned, 250 in circulation, 250 in reserve
+
+44 passed, 0 failed
